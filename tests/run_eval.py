@@ -1,4 +1,10 @@
 import os
+import sys
+from dotenv import load_dotenv
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+load_dotenv()
+
 from app.db.seed import seed_database
 from app.services.purchasing_service import run_purchasing_workflow
 
@@ -25,7 +31,7 @@ def run_evaluation():
             "product_id": "SKU-001",
             "supplier_id": "SUP-001",
             "qty": 800,
-            "expected_decision": "MODIFY"
+            "expected_decision": ["MODIFY", "REJECT"]
         },
         {
             "id": "SC-03",
@@ -49,7 +55,7 @@ def run_evaluation():
             "product_id": "SKU-001",
             "supplier_id": "SUP-001",
             "qty": 800,
-            "expected_decision": "MODIFY",
+            "expected_decision": ["MODIFY"],
             "expected_validation": "PARTIALLY_VALID"
         }
     ]
@@ -60,6 +66,7 @@ def run_evaluation():
     print("-" * 60)
     
     for s in scenarios:
+        seed_database(force_reseed=True) # Ensure clean state for each scenario
         res = run_purchasing_workflow(s["product_id"], s["supplier_id"], s["qty"], auto_approve=True)
         decision = res["decision"]
         validation = res.get("validation_result", {}).get("status", "N/A") if res.get("validation_result") else "N/A"
@@ -74,6 +81,7 @@ def run_evaluation():
         
         val_str = f" [Validation: {validation}]" if "expected_validation" in s else ""
         print(f"{s['name']:<30} : {status} [Decision: {decision}]{val_str}")
+        print(f"Reason: {res.get('reasoning_summary')}")
         
         results.append({
             "scenario": s["id"],

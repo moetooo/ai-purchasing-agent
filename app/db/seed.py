@@ -2,18 +2,21 @@ import json
 import os
 from app.db.database import (
     SessionLocal, init_db, DBProduct, DBInventory, DBDemand,
-    DBSupplier, DBPurchaseOrder, DBBudget
+    DBSupplier, DBPurchaseOrder, DBBudget, Base, engine
 )
 from datetime import datetime, timezone
 
-def seed_database():
+def seed_database(force_reseed=False):
+    if force_reseed:
+        Base.metadata.drop_all(bind=engine)
+    
     # Initialize DB (creates tables if not exist)
     init_db()
     
     db = SessionLocal()
     try:
         # Check if already seeded
-        if db.query(DBProduct).first() is not None:
+        if not force_reseed and db.query(DBProduct).first() is not None:
             print("Database already seeded. Skipping.")
             return
 
