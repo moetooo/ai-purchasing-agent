@@ -14,7 +14,7 @@ EXPOSE 8501
 # Script to run both
 RUN echo '#!/bin/bash\n\
 uvicorn main:app --host 0.0.0.0 --port 8000 &\n\
-streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0\n\
+streamlit run frontend/dashboard.py --server.port 8501 --server.address 0.0.0.0\n\
 ' > start.sh
 RUN chmod +x start.sh
 

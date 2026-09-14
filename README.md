@@ -1,5 +1,7 @@
 # AI Purchasing Agent
 
+**Live Demo:** [https://demo-ai-purchasing-agent.streamlit.app/](https://demo-ai-purchasing-agent.streamlit.app/)
+
 This repository contains a full-stack AI Purchasing Agent built to assist buyers with procurement decisions. The agent analyzes context, respects hard operational constraints, makes autonomous (or HITL) decisions, and automatically validates its own actions.
 
 ## Architecture & Design Principles
@@ -45,7 +47,7 @@ GOOGLE_API_KEY=your_gemini_api_key_here
 You can run the Streamlit frontend locally. The database will automatically seed with mock data.
 
 ```bash
-streamlit run frontend/app.py
+streamlit run frontend/dashboard.py
 ```
 
 To start the FastAPI Mock backend separately:

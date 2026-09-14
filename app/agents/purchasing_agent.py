@@ -56,7 +56,10 @@ def evaluate_constraints_node(state: AgentState):
 
 def reason_and_decide_node(state: AgentState):
     model_name = os.getenv("MODEL_NAME", "gemini-2.5-pro")
-    llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
+    primary_llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
+    fallback_llm = ChatGoogleGenerativeAI(model="gemini-flash-lite-latest", temperature=0)
+    
+    llm = primary_llm.with_fallbacks([fallback_llm])
     llm_with_structured_output = llm.with_structured_output(AgentDecision)
     
     content = f"""

@@ -2,6 +2,9 @@ import uvicorn
 from app.api.routes import router
 from app.db.seed import seed_database
 from fastapi import FastAPI
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="AI Purchasing Agent API")
 app.include_router(router)

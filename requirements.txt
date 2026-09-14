@@ -9,3 +9,4 @@ pydantic
 pytest
 matplotlib
 requests
+python-dotenv
