@@ -10,7 +10,7 @@ This repository contains a full-stack AI Purchasing Agent built to assist buyers
 * **Hard Constraint Enforcement**: The system relies on a purely Python-based deterministic constraint engine that evaluates budget limits, storage capacities, MOQ, and supplier availability. The LLM cannot override math. If the constraint engine outputs a `max_feasible_qty` of 500, the LLM will modify the order down from 800 to 500.
 * **Closed-Loop Feedback & Validation**: Creating the purchase order isn't the final step. A post-action validator inspects the actual database state and compares it against expected execution, classifying the outcome as `VALID`, `PARTIALLY_VALID`, or `INVALID`. 
 
-![Architecture Diagram](architecture.png)
+![Architecture Diagram](docs/architecture.png)
 
 ## Scenarios Handled
 
