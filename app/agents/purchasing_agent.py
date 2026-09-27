@@ -75,13 +75,38 @@ def reason_and_decide_node(state: AgentState):
     
     response = llm_with_structured_output.invoke(messages)
     
-    state["decision"] = response.decision
-    state["final_qty"] = response.final_qty
+    max_feasible_qty = state.get("constraint_result", {}).get("max_feasible_qty", 0)
+    
     state["reasoning_summary"] = response.reasoning_summary
     state["important_factors"] = response.important_factors
     state["risks"] = response.risks
     
-    state["agent_trace"].append({"step": "Reason and Decide", "timestamp": datetime.now().isoformat(), "detail": f"Decision: {response.decision}, Qty: {response.final_qty}"})
+    if response.final_qty <= max_feasible_qty:
+        state["decision"] = response.decision
+        state["final_qty"] = response.final_qty
+        state["agent_trace"].append({
+            "step": "Reason and Decide",
+            "timestamp": datetime.now().isoformat(),
+            "detail": f"Decision: {response.decision}, Qty: {response.final_qty}"
+        })
+    else:
+        if max_feasible_qty > 0:
+            state["decision"] = "MODIFY"
+            state["final_qty"] = max_feasible_qty
+            state["agent_trace"].append({
+                "step": "Deterministic Safety Clamp",
+                "timestamp": datetime.now().isoformat(),
+                "detail": f"LLM proposed unsafe quantity {response.final_qty}. Python constrained to max feasible {max_feasible_qty}."
+            })
+        else:
+            state["decision"] = "REJECT"
+            state["final_qty"] = 0
+            state["agent_trace"].append({
+                "step": "Deterministic Safety Clamp",
+                "timestamp": datetime.now().isoformat(),
+                "detail": f"LLM proposed quantity {response.final_qty}, but no feasible quantity exists (max_feasible_qty=0). Decision forced to REJECT."
+            })
+            
     return state
 
 def check_approval_node(state: AgentState):

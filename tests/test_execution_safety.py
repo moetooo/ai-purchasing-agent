@@ -189,3 +189,154 @@ def test_accept_executes_without_requiring_approval():
     final_po_count = db.query(DBPurchaseOrder).count()
     db.close()
     assert final_po_count == initial_po_count + 1, "Exactly one PO should be created for ACCEPT"
+
+def test_llm_unsafe_quantity_clamped_to_modify_and_approval_required():
+    """Verify that if LLM returns ACCEPT with final_qty > max_feasible_qty,
+    it is clamped to max_feasible_qty, converted to MODIFY, and approval is required."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import reason_and_decide_node, AgentDecision
+
+    mock_llm_output = AgentDecision(
+        decision="ACCEPT",
+        final_qty=1000,
+        reasoning_summary="Everything looks fine",
+        important_factors=[],
+        risks=[]
+    )
+    
+    state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 800},
+        "investigation_data": {},
+        "constraint_result": {"passed": False, "max_feasible_qty": 500},
+        "decision": None,
+        "final_qty": None,
+        "reasoning_summary": None,
+        "important_factors": [],
+        "risks": [],
+        "required_approval": False,
+        "execution_result": None,
+        "validation_result": None,
+        "agent_trace": []
+    }
+    
+    with patch("app.agents.purchasing_agent.ChatGoogleGenerativeAI") as mock_chat:
+        mock_instance = MagicMock()
+        mock_chat.return_value = mock_instance
+        mock_instance.with_fallbacks.return_value = mock_instance
+        mock_instance.with_structured_output.return_value.invoke.return_value = mock_llm_output
+        
+        # Test reason_and_decide_node
+        decided_state = reason_and_decide_node(state)
+        assert decided_state["decision"] == "MODIFY"
+        assert decided_state["final_qty"] == 500
+        assert any("Deterministic Safety Clamp" in step.get("step", "") for step in decided_state["agent_trace"])
+        
+        # Follow through check_approval_node
+        approved_state = check_approval_node(decided_state)
+        assert approved_state["required_approval"] is True
+
+    # Also verify full workflow execution blocks without explicit approval
+    db = SessionLocal()
+    initial_po_count = db.query(DBPurchaseOrder).count()
+    db.close()
+
+    with patch("app.agents.purchasing_agent.ChatGoogleGenerativeAI") as mock_chat:
+        mock_instance = MagicMock()
+        mock_chat.return_value = mock_instance
+        mock_instance.with_fallbacks.return_value = mock_instance
+        mock_instance.with_structured_output.return_value.invoke.return_value = mock_llm_output
+        
+        # Default auto_approve=False
+        res = run_purchasing_workflow("SKU-001", "SUP-001", 800, auto_approve=False)
+        assert res["decision"] == "MODIFY"
+        assert res["final_qty"] == 500
+        assert res["required_approval"] is True
+        assert res["execution_result"] is None
+
+    db = SessionLocal()
+    final_po_count = db.query(DBPurchaseOrder).count()
+    db.close()
+    assert final_po_count == initial_po_count, "Unsafe quantity of 1000 was not executed"
+
+def test_llm_unsafe_quantity_clamped_to_reject_when_max_feasible_zero():
+    """Verify that if LLM returns ACCEPT with final_qty > 0 when max_feasible_qty == 0,
+    it is forced to REJECT and 0 units, and no PO is created."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import reason_and_decide_node, AgentDecision
+
+    mock_llm_output = AgentDecision(
+        decision="ACCEPT",
+        final_qty=500,
+        reasoning_summary="Attempting to purchase despite zero feasibility",
+        important_factors=[],
+        risks=[]
+    )
+    
+    state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 800},
+        "investigation_data": {},
+        "constraint_result": {"passed": False, "max_feasible_qty": 0},
+        "decision": None,
+        "final_qty": None,
+        "reasoning_summary": None,
+        "important_factors": [],
+        "risks": [],
+        "required_approval": False,
+        "execution_result": None,
+        "validation_result": None,
+        "agent_trace": []
+    }
+    
+    with patch("app.agents.purchasing_agent.ChatGoogleGenerativeAI") as mock_chat:
+        mock_instance = MagicMock()
+        mock_chat.return_value = mock_instance
+        mock_instance.with_fallbacks.return_value = mock_instance
+        mock_instance.with_structured_output.return_value.invoke.return_value = mock_llm_output
+        
+        decided_state = reason_and_decide_node(state)
+        assert decided_state["decision"] == "REJECT"
+        assert decided_state["final_qty"] == 0
+        assert any("Deterministic Safety Clamp" in step.get("step", "") for step in decided_state["agent_trace"])
+        
+        approved_state = check_approval_node(decided_state)
+        assert approved_state["required_approval"] is False
+
+def test_llm_safe_quantity_preserved():
+    """Verify that when final_qty <= max_feasible_qty, the LLM decision and quantity are preserved."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import reason_and_decide_node, AgentDecision
+
+    mock_llm_output = AgentDecision(
+        decision="ACCEPT",
+        final_qty=300,
+        reasoning_summary="Within all constraints",
+        important_factors=["Budget OK", "Storage OK"],
+        risks=[]
+    )
+    
+    state = {
+        "recommendation": {"product_id": "SKU-003", "supplier_id": "SUP-002", "recommended_qty": 300},
+        "investigation_data": {},
+        "constraint_result": {"passed": True, "max_feasible_qty": 300},
+        "decision": None,
+        "final_qty": None,
+        "reasoning_summary": None,
+        "important_factors": [],
+        "risks": [],
+        "required_approval": False,
+        "execution_result": None,
+        "validation_result": None,
+        "agent_trace": []
+    }
+    
+    with patch("app.agents.purchasing_agent.ChatGoogleGenerativeAI") as mock_chat:
+        mock_instance = MagicMock()
+        mock_chat.return_value = mock_instance
+        mock_instance.with_fallbacks.return_value = mock_instance
+        mock_instance.with_structured_output.return_value.invoke.return_value = mock_llm_output
+        
+        decided_state = reason_and_decide_node(state)
+        assert decided_state["decision"] == "ACCEPT"
+        assert decided_state["final_qty"] == 300
+        assert decided_state["reasoning_summary"] == "Within all constraints"
+        assert any("Reason and Decide" in step.get("step", "") for step in decided_state["agent_trace"])
