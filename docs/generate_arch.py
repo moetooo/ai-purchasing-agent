@@ -38,7 +38,7 @@ def generate():
     pos = nx.get_node_attributes(G, 'pos')
     
     plt.figure(figsize=(12, 8))
-    nx.draw(
+    nx.draw_networkx(
         G, pos,
         with_labels=True,
         node_color='lightblue',
