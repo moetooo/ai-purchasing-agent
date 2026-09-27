@@ -107,7 +107,7 @@ if state:
             st.write(f"- {r}")
             
     st.header("4. Human Approval Gate")
-    if state.get("required_approval") and not state.get("execution_result"):
+    if state.get("decision") == "MODIFY" and state.get("required_approval") and not state.get("execution_result") and state.get("final_qty", 0) > 0:
         st.warning("Human Approval Required for Action Execution due to modifications or constraints.")
         col1, col2 = st.columns(2)
         with col1:

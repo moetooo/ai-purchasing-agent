@@ -85,12 +85,11 @@ def reason_and_decide_node(state: AgentState):
     return state
 
 def check_approval_node(state: AgentState):
-    rec_qty = state['recommendation']['recommended_qty']
     decision = state['decision']
     
-    req_approval = False
-    if decision in ["MODIFY", "REJECT", "INVESTIGATE"]:
-        req_approval = True
+    # Only MODIFY requires human execution approval.
+    # ACCEPT does not require approval; REJECT and INVESTIGATE are non-executing outcomes.
+    req_approval = (decision == "MODIFY")
         
     state["required_approval"] = req_approval
     state["agent_trace"].append({"step": "Check Approval", "timestamp": datetime.now().isoformat(), "detail": f"Approval required: {req_approval}"})
