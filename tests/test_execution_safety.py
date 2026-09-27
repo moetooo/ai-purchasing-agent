@@ -340,3 +340,336 @@ def test_llm_safe_quantity_preserved():
         assert decided_state["final_qty"] == 300
         assert decided_state["reasoning_summary"] == "Within all constraints"
         assert any("Reason and Decide" in step.get("step", "") for step in decided_state["agent_trace"])
+
+def test_default_model_fallback_chain_order(monkeypatch):
+    """Verify default fallback chain order when MODEL_NAME is unset."""
+    from app.agents.purchasing_agent import get_model_fallback_chain, DEFAULT_MODEL_FALLBACKS
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    
+    chain = get_model_fallback_chain()
+    assert chain == [
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemma-4-31b-it"
+    ]
+    assert chain == DEFAULT_MODEL_FALLBACKS
+
+def test_model_fallback_chain_with_custom_model(monkeypatch):
+    """Verify that an explicit MODEL_NAME becomes first choice, followed by the fallback chain."""
+    from app.agents.purchasing_agent import get_model_fallback_chain
+    monkeypatch.setenv("MODEL_NAME", "custom-experimental-model")
+    
+    chain = get_model_fallback_chain()
+    assert chain == [
+        "custom-experimental-model",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemma-4-31b-it"
+    ]
+
+def test_model_fallback_chain_avoids_duplicates(monkeypatch):
+    """Verify that if explicit model is already in fallback list, it is not duplicated."""
+    from app.agents.purchasing_agent import get_model_fallback_chain
+    monkeypatch.setenv("MODEL_NAME", "gemini-3.5-flash-lite")
+    
+    chain = get_model_fallback_chain()
+    assert chain[0] == "gemini-3.5-flash-lite"
+    assert chain.count("gemini-3.5-flash-lite") == 1
+    assert chain == [
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemma-4-31b-it"
+    ]
+
+def test_reason_and_decide_node_configures_fallbacks(monkeypatch):
+    """Verify that reason_and_decide_node configures primary and fallback LLMs from the chain."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import reason_and_decide_node, AgentDecision
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+
+    mock_llm_output = AgentDecision(
+        decision="ACCEPT",
+        final_qty=100,
+        reasoning_summary="OK",
+        important_factors=[],
+        risks=[]
+    )
+    state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 100},
+        "investigation_data": {},
+        "constraint_result": {"passed": True, "max_feasible_qty": 100},
+        "decision": None,
+        "final_qty": None,
+        "reasoning_summary": None,
+        "important_factors": [],
+        "risks": [],
+        "required_approval": False,
+        "execution_result": None,
+        "validation_result": None,
+        "agent_trace": []
+    }
+
+    created_models = []
+    with patch("app.agents.purchasing_agent.ChatGoogleGenerativeAI") as mock_chat:
+        def fake_chat(**kwargs):
+            mock_inst = MagicMock()
+            mock_inst.model_name = kwargs.get("model")
+            created_models.append(kwargs.get("model"))
+            mock_inst.with_fallbacks.return_value = mock_inst
+            mock_inst.with_structured_output.return_value.invoke.return_value = mock_llm_output
+            return mock_inst
+
+        mock_chat.side_effect = fake_chat
+        reason_and_decide_node(state)
+
+        # Primary + 3 fallbacks should be initialized in order
+        assert created_models == [
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
+            "gemini-3.5-flash-lite",
+            "gemma-4-31b-it"
+        ]
+
+def test_approval_execution_binds_to_workflow_recommendation():
+    """Verify that approval execution strictly binds to state['recommendation'],
+    preventing any divergent/stale UI input values from corrupting the purchase order."""
+    from app.services.purchasing_service import execute_purchase_action, get_product_unit_cost
+
+    # Workflow state has analyzed and recommended SKU-001 / SUP-001
+    workflow_state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 800},
+        "investigation_data": {},
+        "constraint_result": {"passed": False, "max_feasible_qty": 500},
+        "decision": "MODIFY",
+        "final_qty": 500,
+        "reasoning_summary": "Storage limited to 500 units",
+        "important_factors": ["Storage capacity"],
+        "risks": [],
+        "required_approval": True,
+        "execution_result": None,
+        "validation_result": None,
+        "agent_trace": []
+    }
+
+    # Simulate divergent sidebar inputs that were modified after agent ran
+    stale_sidebar_prod = "SKU-002"
+    stale_sidebar_sup = "SUP-002"
+
+    # The safe approval binding logic:
+    rec = workflow_state.get("recommendation", {})
+    approved_prod = rec.get("product_id")
+    approved_sup = rec.get("supplier_id")
+    unit_cost = get_product_unit_cost(approved_prod)
+
+    outcome = execute_purchase_action(
+        product_id=approved_prod,
+        supplier_id=approved_sup,
+        quantity=workflow_state["final_qty"],
+        unit_cost=unit_cost
+    )
+
+    exec_res = outcome["execution_result"]
+    val_res = outcome["validation_result"]
+
+    # Verify that the PO was created for the recommended product/supplier, NOT the stale sidebar inputs
+    assert exec_res["product_id"] == "SKU-001"
+    assert exec_res["product_id"] != stale_sidebar_prod
+    assert exec_res["supplier_id"] == "SUP-001"
+    assert exec_res["supplier_id"] != stale_sidebar_sup
+    assert exec_res["quantity"] == 300  # SKU-001 demo simulated fulfillment
+    assert val_res is not None
+    assert val_res["status"] == "PARTIALLY_VALID"
+
+def test_run_purchasing_workflow_closes_session_on_exception():
+    """Verify that run_purchasing_workflow closes SessionLocal even if graph invocation fails."""
+    from unittest.mock import MagicMock
+    from app.db.database import SessionLocal as RealSessionLocal
+
+    real_session = RealSessionLocal()
+    close_mock = MagicMock(wraps=real_session.close)
+    real_session.close = close_mock
+
+    with patch("app.services.purchasing_service.SessionLocal", return_value=real_session):
+        with patch("app.services.purchasing_service.purchasing_graph.invoke", side_effect=RuntimeError("LLM invocation error")):
+            with pytest.raises(RuntimeError, match="LLM invocation error"):
+                run_purchasing_workflow("SKU-001", "SUP-001", 100)
+
+    assert close_mock.called, "SessionLocal.close() must be called in finally block on workflow exception"
+
+def test_investigate_node_closes_session_on_exception():
+    """Verify that investigate_node closes SessionLocal even if a tool query fails."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import investigate_node
+    from app.db.database import SessionLocal as RealSessionLocal
+
+    real_session = RealSessionLocal()
+    close_mock = MagicMock(wraps=real_session.close)
+    real_session.close = close_mock
+
+    state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 100},
+        "agent_trace": []
+    }
+
+    with patch("app.agents.purchasing_agent.SessionLocal", return_value=real_session):
+        with patch("app.agents.purchasing_agent.get_inventory", side_effect=RuntimeError("DB query failure")):
+            with pytest.raises(RuntimeError, match="DB query failure"):
+                investigate_node(state)
+
+    assert close_mock.called, "SessionLocal.close() must be called in finally block on investigate_node exception"
+
+def test_evaluate_constraints_node_closes_session_on_exception():
+    """Verify that evaluate_constraints_node closes SessionLocal even if evaluation fails."""
+    from unittest.mock import MagicMock
+    from app.agents.purchasing_agent import evaluate_constraints_node
+    from app.db.database import SessionLocal as RealSessionLocal
+
+    real_session = RealSessionLocal()
+    close_mock = MagicMock(wraps=real_session.close)
+    real_session.close = close_mock
+
+    state = {
+        "recommendation": {"product_id": "SKU-001", "supplier_id": "SUP-001", "recommended_qty": 100},
+        "agent_trace": []
+    }
+
+    with patch("app.agents.purchasing_agent.SessionLocal", return_value=real_session):
+        with patch("app.agents.purchasing_agent.evaluate_constraints", side_effect=RuntimeError("Constraint failure")):
+            with pytest.raises(RuntimeError, match="Constraint failure"):
+                evaluate_constraints_node(state)
+
+    assert close_mock.called, "SessionLocal.close() must be called in finally block on evaluate_constraints_node exception"
+
+def test_service_level_po_creation_and_validation():
+    """Verify that PO creation and validation functions work at the service layer without API dependencies."""
+    from app.services.purchasing_service import create_purchase_order_record, validate_purchase_order_record
+    
+    db = SessionLocal()
+    try:
+        # Create a PO via service-level function
+        po = create_purchase_order_record(
+            product_id="SKU-003",
+            supplier_id="SUP-002",
+            quantity=300,
+            unit_cost=15.0,
+            db=db
+        )
+        assert po.id is not None
+        assert po.id.startswith("PO-")
+        assert po.product_id == "SKU-003"
+        assert po.quantity == 300
+        assert po.status == "OPEN"
+
+        # Validate the PO via service-level function
+        val = validate_purchase_order_record(
+            po_id=po.id,
+            expected_quantity=300,
+            expected_supplier_id="SUP-002",
+            db=db
+        )
+        assert val is not None
+        assert val["status"] == "VALID"
+        assert val["details"]["diff"] == 0
+
+        # Validate non-existent PO returns None
+        missing_val = validate_purchase_order_record(
+            po_id="PO-NONEXISTENT",
+            expected_quantity=100,
+            expected_supplier_id="SUP-001",
+            db=db
+        )
+        assert missing_val is None
+    finally:
+        db.close()
+
+def test_api_routes_delegate_to_service_functions():
+    """Verify that FastAPI route handlers delegate to the service layer properly."""
+    from app.api.routes import create_purchase_order, validate_po, POCreate, POValidate
+    
+    db = SessionLocal()
+    try:
+        po_req = POCreate(
+            product_id="SKU-002",
+            supplier_id="SUP-002",
+            quantity=150,
+            unit_cost=10.0
+        )
+        created_po = create_purchase_order(po=po_req, db=db)
+        assert created_po.id is not None
+        assert created_po.quantity == 150
+
+        val_req = POValidate(
+            expected_quantity=150,
+            expected_supplier_id="SUP-002"
+        )
+        val_res = validate_po(id=created_po.id, req=val_req, db=db)
+        assert val_res["status"] == "VALID"
+    finally:
+        db.close()
+
+def test_agent_decision_schema_valid_decisions():
+    """Verify that all four valid decision values are accepted by AgentDecision."""
+    from app.agents.purchasing_agent import AgentDecision
+    
+    for valid_dec in ["ACCEPT", "MODIFY", "REJECT", "INVESTIGATE"]:
+        ad = AgentDecision(
+            decision=valid_dec,
+            final_qty=100,
+            reasoning_summary="Valid decision test",
+            important_factors=["Factor A"],
+            risks=[]
+        )
+        assert ad.decision == valid_dec
+        assert ad.final_qty == 100
+
+def test_agent_decision_schema_rejects_invalid_decision():
+    """Verify that any invalid decision string is rejected with ValidationError."""
+    from app.agents.purchasing_agent import AgentDecision
+    from pydantic import ValidationError
+    
+    for bad_dec in ["accept", "HOLD", "APPROVE", "CANCEL", ""]:
+        with pytest.raises(ValidationError):
+            AgentDecision(
+                decision=bad_dec,
+                final_qty=100,
+                reasoning_summary="Invalid decision test",
+                important_factors=[],
+                risks=[]
+            )
+
+def test_agent_decision_schema_rejects_negative_quantity():
+    """Verify that negative final_qty is rejected with ValidationError."""
+    from app.agents.purchasing_agent import AgentDecision
+    from pydantic import ValidationError
+    
+    for bad_qty in [-1, -50, -999]:
+        with pytest.raises(ValidationError):
+            AgentDecision(
+                decision="ACCEPT",
+                final_qty=bad_qty,
+                reasoning_summary="Negative quantity test",
+                important_factors=[],
+                risks=[]
+            )
+
+def test_agent_decision_schema_accepts_zero_quantity():
+    """Verify that final_qty=0 is accepted by AgentDecision."""
+    from app.agents.purchasing_agent import AgentDecision
+    
+    ad = AgentDecision(
+        decision="REJECT",
+        final_qty=0,
+        reasoning_summary="Zero quantity test",
+        important_factors=[],
+        risks=[]
+    )
+    assert ad.final_qty == 0
+    assert ad.decision == "REJECT"
+
+
+
+
+

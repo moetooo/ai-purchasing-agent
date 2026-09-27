@@ -14,31 +14,35 @@ from langchain_core.messages import SystemMessage, HumanMessage
 import json
 import os
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Literal
 from datetime import datetime
 
 class AgentDecision(BaseModel):
-    decision: str = Field(description="One of ACCEPT, MODIFY, REJECT, INVESTIGATE")
-    final_qty: int = Field(description="The final approved quantity")
+    decision: Literal["ACCEPT", "MODIFY", "REJECT", "INVESTIGATE"] = Field(
+        description="One of ACCEPT, MODIFY, REJECT, INVESTIGATE"
+    )
+    final_qty: int = Field(ge=0, description="The final approved quantity (must be >= 0)")
     reasoning_summary: str = Field(description="Brief explanation of why this decision was made")
     important_factors: List[str] = Field(description="Key data points driving the decision")
     risks: List[str] = Field(description="Potential issues with this decision")
 
 def investigate_node(state: AgentState):
     db = SessionLocal()
-    rec = state['recommendation']
-    product_id = rec['product_id']
-    supplier_id = rec['supplier_id']
-    
-    inv_data = {
-        "inventory": get_inventory(product_id, db),
-        "demand": get_demand(product_id, db),
-        "supplier": get_supplier_info(supplier_id, db),
-        "open_pos": get_open_purchase_orders(product_id, db),
-        "budget": get_budget(db),
-        "storage": get_storage_capacity(product_id, db)
-    }
-    db.close()
+    try:
+        rec = state['recommendation']
+        product_id = rec['product_id']
+        supplier_id = rec['supplier_id']
+        
+        inv_data = {
+            "inventory": get_inventory(product_id, db),
+            "demand": get_demand(product_id, db),
+            "supplier": get_supplier_info(supplier_id, db),
+            "open_pos": get_open_purchase_orders(product_id, db),
+            "budget": get_budget(db),
+            "storage": get_storage_capacity(product_id, db)
+        }
+    finally:
+        db.close()
     
     state["investigation_data"] = inv_data
     state["agent_trace"].append({"step": "Investigate", "timestamp": datetime.now().isoformat(), "detail": "Gathered data from tools."})
@@ -46,20 +50,46 @@ def investigate_node(state: AgentState):
 
 def evaluate_constraints_node(state: AgentState):
     db = SessionLocal()
-    rec = state['recommendation']
-    res = evaluate_constraints(rec['product_id'], rec['supplier_id'], rec['recommended_qty'], db)
-    db.close()
+    try:
+        rec = state['recommendation']
+        res = evaluate_constraints(rec['product_id'], rec['supplier_id'], rec['recommended_qty'], db)
+    finally:
+        db.close()
     
     state["constraint_result"] = res
     state["agent_trace"].append({"step": "Evaluate Constraints", "timestamp": datetime.now().isoformat(), "detail": f"Constraints passed: {res['passed']}. Max feasible: {res['max_feasible_qty']}"})
     return state
 
-def reason_and_decide_node(state: AgentState):
-    model_name = os.getenv("MODEL_NAME", "gemini-2.5-pro")
-    primary_llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
-    fallback_llm = ChatGoogleGenerativeAI(model="gemini-flash-lite-latest", temperature=0)
+DEFAULT_MODEL_FALLBACKS = [
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemma-4-31b-it",
+]
+
+def get_model_fallback_chain(configured_model: str | None = None) -> list[str]:
+    """Returns the ordered list of model names to attempt, without duplicates.
     
-    llm = primary_llm.with_fallbacks([fallback_llm])
+    If configured_model (or os.getenv('MODEL_NAME')) is provided, it is placed
+    first. Remaining default fallbacks follow in their defined order, omitting
+    any duplicate of the first-choice model.
+    """
+    first_choice = configured_model or os.getenv("MODEL_NAME") or DEFAULT_MODEL_FALLBACKS[0]
+    chain = [first_choice]
+    for model in DEFAULT_MODEL_FALLBACKS:
+        if model not in chain:
+            chain.append(model)
+    return chain
+
+def reason_and_decide_node(state: AgentState):
+    model_chain = get_model_fallback_chain()
+    primary_llm = ChatGoogleGenerativeAI(model=model_chain[0], temperature=0)
+    fallback_llms = [
+        ChatGoogleGenerativeAI(model=m, temperature=0)
+        for m in model_chain[1:]
+    ]
+    
+    llm = primary_llm.with_fallbacks(fallback_llms) if fallback_llms else primary_llm
     llm_with_structured_output = llm.with_structured_output(AgentDecision)
     
     content = f"""

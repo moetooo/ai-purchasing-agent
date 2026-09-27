@@ -8,5 +8,6 @@ sqlalchemy
 pydantic
 pytest
 matplotlib
-requests
+pandas
+networkx
 python-dotenv

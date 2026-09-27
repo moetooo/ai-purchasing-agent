@@ -114,11 +114,14 @@ if state:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Approve Execution", type="primary"):
-                # Run execution via centralized service
-                unit_cost = get_product_unit_cost(prod)
+                # Run execution via centralized service using stored workflow state
+                rec = state.get("recommendation", {})
+                approved_prod = rec.get("product_id")
+                approved_sup = rec.get("supplier_id")
+                unit_cost = get_product_unit_cost(approved_prod)
                 exec_outcome = execute_purchase_action(
-                    product_id=prod,
-                    supplier_id=sup,
+                    product_id=approved_prod,
+                    supplier_id=approved_sup,
                     quantity=state["final_qty"],
                     unit_cost=unit_cost
                 )

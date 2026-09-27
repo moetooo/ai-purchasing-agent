@@ -46,3 +46,44 @@ def test_evaluate_constraints_moq_breach(db_session):
     assert result["passed"] is False
     assert result["max_feasible_qty"] == 0
     assert any("Below minimum order quantity" in v for v in result["violations"])
+
+def test_evaluate_constraints_storage_per_unit_zero(db_session):
+    product = db_session.query(DBProduct).filter(DBProduct.id == "SKU-TEST").first()
+    product.storage_per_unit = 0.0
+    db_session.commit()
+
+    result = evaluate_constraints("SKU-TEST", "SUP-TEST", 200, db_session)
+    assert result["passed"] is False
+    assert result["max_feasible_qty"] == 0
+    assert any("Invalid product storage_per_unit" in v for v in result["violations"])
+
+def test_evaluate_constraints_storage_per_unit_negative(db_session):
+    product = db_session.query(DBProduct).filter(DBProduct.id == "SKU-TEST").first()
+    product.storage_per_unit = -1.5
+    db_session.commit()
+
+    result = evaluate_constraints("SKU-TEST", "SUP-TEST", 200, db_session)
+    assert result["passed"] is False
+    assert result["max_feasible_qty"] == 0
+    assert any("Invalid product storage_per_unit" in v for v in result["violations"])
+
+def test_evaluate_constraints_unit_cost_zero(db_session):
+    product = db_session.query(DBProduct).filter(DBProduct.id == "SKU-TEST").first()
+    product.unit_cost = 0.0
+    db_session.commit()
+
+    result = evaluate_constraints("SKU-TEST", "SUP-TEST", 200, db_session)
+    assert result["passed"] is False
+    assert result["max_feasible_qty"] == 0
+    assert any("Invalid product unit_cost" in v for v in result["violations"])
+
+def test_evaluate_constraints_unit_cost_negative(db_session):
+    product = db_session.query(DBProduct).filter(DBProduct.id == "SKU-TEST").first()
+    product.unit_cost = -10.0
+    db_session.commit()
+
+    result = evaluate_constraints("SKU-TEST", "SUP-TEST", 200, db_session)
+    assert result["passed"] is False
+    assert result["max_feasible_qty"] == 0
+    assert any("Invalid product unit_cost" in v for v in result["violations"])
+

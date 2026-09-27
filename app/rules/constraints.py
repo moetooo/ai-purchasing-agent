@@ -22,6 +22,25 @@ def evaluate_constraints(product_id: str, supplier_id: str, proposed_qty: int, d
             "warnings": [],
             "metrics": {}
         }
+
+    invalid_data_violations = []
+    if product.storage_per_unit is None or product.storage_per_unit <= 0:
+        invalid_data_violations.append(
+            f"Invalid product storage_per_unit: {product.storage_per_unit}. Must be greater than 0."
+        )
+    if product.unit_cost is None or product.unit_cost <= 0:
+        invalid_data_violations.append(
+            f"Invalid product unit_cost: {product.unit_cost}. Must be greater than 0."
+        )
+
+    if invalid_data_violations:
+        return {
+            "passed": False,
+            "max_feasible_qty": 0,
+            "violations": invalid_data_violations,
+            "warnings": [],
+            "metrics": {}
+        }
     
     open_incoming_qty = sum(po.quantity for po in open_pos)
     available_inventory = inventory.current_stock + open_incoming_qty

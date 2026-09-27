@@ -6,12 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="AI Purchasing Agent API")
-app.include_router(router)
+from contextlib import asynccontextmanager
 
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     seed_database()
+    yield
+
+app = FastAPI(title="AI Purchasing Agent API", lifespan=lifespan)
+app.include_router(router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

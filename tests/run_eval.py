@@ -69,33 +69,45 @@ def run_evaluation():
         seed_database(force_reseed=True) # Ensure clean state for each scenario
         res = run_purchasing_workflow(s["product_id"], s["supplier_id"], s["qty"], auto_approve=True)
         decision = res["decision"]
+        raw_final_qty = res.get("final_qty")
+        final_qty = raw_final_qty if raw_final_qty is not None else 0
+
+        constraint_result = res.get("constraint_result") or {}
+        max_feasible_qty = constraint_result.get("max_feasible_qty", 0)
+
         validation = res.get("validation_result", {}).get("status", "N/A") if res.get("validation_result") else "N/A"
         
         passed_decision = decision == s["expected_decision"] or (isinstance(s["expected_decision"], list) and decision in s["expected_decision"])
+        
+        # Constraint compliance: selected quantity must respect deterministic feasibility limit
+        passed_constraint = (0 <= final_qty <= max_feasible_qty)
         
         passed_val = True
         if "expected_validation" in s:
             passed_val = validation == s["expected_validation"]
             
-        status = "PASS" if passed_decision and passed_val else "FAIL"
+        status = "PASS" if passed_decision and passed_constraint and passed_val else "FAIL"
         
         val_str = f" [Validation: {validation}]" if "expected_validation" in s else ""
-        print(f"{s['name']:<30} : {status} [Decision: {decision}]{val_str}")
+        qty_str = f" [Qty: {final_qty} / Max Feasible: {max_feasible_qty}]"
+        print(f"{s['name']:<30} : {status} [Decision: {decision}]{qty_str}{val_str}")
         print(f"Reason: {res.get('reasoning_summary')}")
         
         results.append({
             "scenario": s["id"],
             "passed_decision": passed_decision,
+            "passed_constraint": passed_constraint,
             "passed_validation": passed_val
         })
         
     print("-" * 60)
     decision_accuracy = sum(1 for r in results if r["passed_decision"]) / len(results)
+    constraint_compliance = sum(1 for r in results if r["passed_constraint"]) / len(results)
     validation_accuracy = sum(1 for r in results if r["passed_validation"]) / len(results)
     
-    print(f"Decision Accuracy: {sum(1 for r in results if r['passed_decision'])}/{len(results)} ({decision_accuracy*100:.0f}%)")
-    print(f"Constraint Compliance: {sum(1 for r in results if r['passed_decision'])}/{len(results)} ({decision_accuracy*100:.0f}%)")
-    print(f"Validation Accuracy: {sum(1 for r in results if r['passed_validation'])}/{len(results)} ({validation_accuracy*100:.0f}%)")
+    print(f"Decision Accuracy:     {sum(1 for r in results if r['passed_decision'])}/{len(results)} ({decision_accuracy*100:.0f}%)")
+    print(f"Constraint Compliance: {sum(1 for r in results if r['passed_constraint'])}/{len(results)} ({constraint_compliance*100:.0f}%)")
+    print(f"Validation Accuracy:   {sum(1 for r in results if r['passed_validation'])}/{len(results)} ({validation_accuracy*100:.0f}%)")
 
 if __name__ == "__main__":
     run_evaluation()

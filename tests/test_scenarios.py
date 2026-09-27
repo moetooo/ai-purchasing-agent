@@ -14,6 +14,7 @@ def setup_db():
 # Note: These tests require an LLM API Key to run since they use Gemini.
 # Ensure MODEL_NAME and GOOGLE_API_KEY are set in the environment.
 
+@pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")
 def test_scenario_1_feasible():
     # Rec=300, Storage/Budget/MOQ OK. Expected: ACCEPT
@@ -23,6 +24,7 @@ def test_scenario_1_feasible():
     assert res["execution_result"] is not None
     assert res["validation_result"]["status"] == "VALID"
 
+@pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")
 def test_scenario_2_storage_breach():
     # SKU-001 Rec=800. Storage permits 500. Expected: MODIFY to 500 or REJECT.
@@ -33,6 +35,7 @@ def test_scenario_2_storage_breach():
     assert res["execution_result"] is not None
     assert res["validation_result"]["status"] == "PARTIALLY_VALID"
 
+@pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")
 def test_scenario_3_budget_breach():
     # SKU-002 unit_cost=10 (wait, I set to 10 in seed, let's use 2000 units -> $20000 > $10000 budget). Expected: REJECT/MODIFY.
@@ -41,6 +44,7 @@ def test_scenario_3_budget_breach():
     if res["decision"] == "MODIFY":
         assert res["final_qty"] <= 1000 # 1000 * 10 = 10000
     
+@pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")
 def test_scenario_4_supplier_capacity():
     # SKU-004 Rec=500. Supplier SUP-003 has available 250. Expected: MODIFY or INVESTIGATE
