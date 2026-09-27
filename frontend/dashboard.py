@@ -10,10 +10,12 @@ load_dotenv()
 # Ensure app is in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.services.purchasing_service import run_purchasing_workflow
+from app.services.purchasing_service import (
+    run_purchasing_workflow,
+    execute_purchase_action,
+    get_product_unit_cost
+)
 from app.db.seed import seed_database
-from app.api.routes import create_purchase_order, validate_po, POCreate, POValidate
-from app.db.database import SessionLocal, DBProduct
 
 st.set_page_config(page_title="AI Purchasing Agent", layout="wide")
 
@@ -112,25 +114,19 @@ if state:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Approve Execution", type="primary"):
-                # Run execution
-                db = SessionLocal()
-                product = db.query(DBProduct).filter(DBProduct.id == prod).first()
-                unit_cost = product.unit_cost if product else 0.0
+                # Run execution via centralized service
+                unit_cost = get_product_unit_cost(prod)
+                exec_outcome = execute_purchase_action(
+                    product_id=prod,
+                    supplier_id=sup,
+                    quantity=state["final_qty"],
+                    unit_cost=unit_cost
+                )
                 
-                po_req = POCreate(product_id=prod, supplier_id=sup, quantity=state["final_qty"], unit_cost=unit_cost)
-                created_po = create_purchase_order(po_req, db)
-                
-                state["execution_result"] = {
-                    "id": created_po.id,
-                    "quantity": created_po.quantity,
-                    "status": created_po.status
-                }
-                
-                val_req = POValidate(expected_quantity=state["final_qty"], expected_supplier_id=sup)
-                val_res = validate_po(created_po.id, val_req, db)
-                state["validation_result"] = val_res
-                state["agent_trace"].append({"step": "Approved & Executed", "detail": f"PO Created: {created_po.id}"})
-                db.close()
+                state["execution_result"] = exec_outcome["execution_result"]
+                state["validation_result"] = exec_outcome["validation_result"]
+                po_id = exec_outcome["execution_result"].get("id", "UNKNOWN")
+                state["agent_trace"].append({"step": "Approved & Executed", "detail": f"PO Created: {po_id}"})
                 st.rerun()
         with col2:
             if st.button("Reject Execution"):
