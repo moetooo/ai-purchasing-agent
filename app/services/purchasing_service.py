@@ -186,3 +186,95 @@ def run_purchasing_workflow(product_id: str, supplier_id: str, recommended_qty: 
         return final_state
     finally:
         db.close()
+
+def run_purchasing_workflow_stream(product_id: str, supplier_id: str, recommended_qty: int, auto_approve: bool = False):
+    """Generator yielding (stage_name, current_state) progressively as workflow executes:
+      1. ('investigate', state) - after tool investigation completes
+      2. ('evaluate', state)    - after deterministic constraints evaluation completes
+      3. ('decide', state)      - after LLM structured reasoning and decision completes
+      4. ('approval', state)    - after check_approval completes
+      5. ('execution', state)   - after purchase order is created (if executed)
+      6. ('validation', state)  - after post-action validation completes
+    """
+    db = SessionLocal()
+    try:
+        product = db.query(DBProduct).filter(DBProduct.id == product_id).first()
+        unit_cost = product.unit_cost if product else 0.0
+
+        current_state = AgentState(
+            recommendation={
+                "product_id": product_id,
+                "supplier_id": supplier_id,
+                "recommended_qty": recommended_qty
+            },
+            investigation_data={},
+            constraint_result={},
+            decision=None,
+            final_qty=None,
+            reasoning_summary=None,
+            important_factors=[],
+            risks=[],
+            required_approval=False,
+            execution_result=None,
+            validation_result=None,
+            agent_trace=[{"step": "Start", "timestamp": datetime.now().isoformat(), "detail": "Workflow initialized"}]
+        )
+
+        for step_output in purchasing_graph.stream(current_state):
+            for node_name, updated_state in step_output.items():
+                current_state.update(updated_state)
+                yield (node_name, current_state)
+
+        decision = current_state.get("decision")
+        final_qty = current_state.get("final_qty", 0) or 0
+        req_approval = current_state.get("required_approval", False)
+
+        # REJECT and INVESTIGATE must return without creating a PO
+        if decision not in ["ACCEPT", "MODIFY"] or final_qty <= 0:
+            return
+
+        # MODIFY requires explicit approval before execution
+        if decision == "MODIFY" and req_approval and not auto_approve:
+            current_state["agent_trace"].append({
+                "step": "Execution Blocked",
+                "timestamp": datetime.now().isoformat(),
+                "detail": "Waiting for human approval."
+            })
+            yield ("blocked", current_state)
+            return
+
+        current_state["agent_trace"].append({
+            "step": "Action Execution",
+            "timestamp": datetime.now().isoformat(),
+            "detail": f"Executing PO for {final_qty} units."
+        })
+
+        try:
+            exec_outcome = execute_purchase_action(
+                product_id=product_id,
+                supplier_id=supplier_id,
+                quantity=final_qty,
+                unit_cost=unit_cost,
+                db=db
+            )
+            current_state["execution_result"] = exec_outcome["execution_result"]
+            current_state["validation_result"] = exec_outcome["validation_result"]
+            yield ("execution", current_state)
+
+            current_state["agent_trace"].append({
+                "step": "Validation",
+                "timestamp": datetime.now().isoformat(),
+                "detail": f"Validation status: {exec_outcome['validation_result']['status']}"
+            })
+            yield ("validation", current_state)
+        except Exception as e:
+            current_state["execution_result"] = {"error": str(e)}
+            current_state["agent_trace"].append({
+                "step": "Execution Failed",
+                "timestamp": datetime.now().isoformat(),
+                "detail": str(e)
+            })
+            yield ("error", current_state)
+    finally:
+        db.close()
+

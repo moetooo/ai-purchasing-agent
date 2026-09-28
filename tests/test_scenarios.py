@@ -38,11 +38,11 @@ def test_scenario_2_storage_breach():
 @pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")
 def test_scenario_3_budget_breach():
-    # SKU-002 unit_cost=10 (wait, I set to 10 in seed, let's use 2000 units -> $20000 > $10000 budget). Expected: REJECT/MODIFY.
+    # SKU-002 unit_cost=1000, let's use 2000 units -> ₹20,00,000 > ₹10,00,000 budget. Expected: REJECT/MODIFY.
     res = run_purchasing_workflow("SKU-002", "SUP-002", 2000, auto_approve=True)
     assert res["decision"] in ["REJECT", "MODIFY"]
     if res["decision"] == "MODIFY":
-        assert res["final_qty"] <= 1000 # 1000 * 10 = 10000
+        assert res["final_qty"] <= 1000 # 1000000 / 1000 = 1000
     
 @pytest.mark.live_llm
 @pytest.mark.skipif(not os.getenv("GOOGLE_API_KEY"), reason="Requires GOOGLE_API_KEY")

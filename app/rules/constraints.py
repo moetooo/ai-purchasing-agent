@@ -2,6 +2,29 @@ from sqlalchemy.orm import Session
 from app.db.database import DBProduct, DBInventory, DBSupplier, DBPurchaseOrder, DBBudget, DBDemand
 from typing import Dict, List, Any
 
+def format_inr(amount: float | int | None) -> str:
+    """Format numeric value in Indian Rupees (INR) using Indian numbering system."""
+    if amount is None:
+        return "₹0"
+    is_negative = amount < 0
+    amount = abs(amount)
+    int_part = int(round(amount))
+    s = str(int_part)
+    if len(s) <= 3:
+        formatted = s
+    else:
+        last3 = s[-3:]
+        rest = s[:-3]
+        groups = []
+        while len(rest) > 2:
+            groups.insert(0, rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            groups.insert(0, rest)
+        formatted = ",".join(groups) + "," + last3
+    prefix = "-₹" if is_negative else "₹"
+    return f"{prefix}{formatted}"
+
 def evaluate_constraints(product_id: str, supplier_id: str, proposed_qty: int, db_session: Session) -> Dict[str, Any]:
     product = db_session.query(DBProduct).filter(DBProduct.id == product_id).first()
     supplier = db_session.query(DBSupplier).filter(DBSupplier.id == supplier_id).first()
@@ -72,7 +95,7 @@ def evaluate_constraints(product_id: str, supplier_id: str, proposed_qty: int, d
         max_feasible_qty = min(max_feasible_qty, max_qty_allowed_by_storage)
     
     if not budget_pass:
-        violations.append(f"Budget exceeded. Total cost ${total_cost} > Available budget ${budget.available_amount}.")
+        violations.append(f"Budget exceeded. Total cost {format_inr(total_cost)} > Available budget {format_inr(budget.available_amount)}.")
         max_feasible_qty = min(max_feasible_qty, max_qty_allowed_by_budget)
         
     if not supplier_cap_pass:

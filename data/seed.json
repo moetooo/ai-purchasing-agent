@@ -1,15 +1,15 @@
 {
   "products": [
-    {"id": "SKU-001", "name": "Premium Widgets", "unit_cost": 10.0, "storage_per_unit": 1.0},
-    {"id": "SKU-002", "name": "Luxury Gadgets", "unit_cost": 10.0, "storage_per_unit": 2.0},
-    {"id": "SKU-003", "name": "Basic Thingamajig", "unit_cost": 5.0, "storage_per_unit": 0.5},
-    {"id": "SKU-004", "name": "Heavy Anvil", "unit_cost": 20.0, "storage_per_unit": 5.0},
-    {"id": "SKU-005", "name": "Mystery Box", "unit_cost": 15.0, "storage_per_unit": 1.0}
+    {"id": "SKU-001", "name": "Premium Widgets", "unit_cost": 1000.0, "storage_per_unit": 1.0},
+    {"id": "SKU-002", "name": "Luxury Gadgets", "unit_cost": 1000.0, "storage_per_unit": 2.0},
+    {"id": "SKU-003", "name": "Basic Thingamajig", "unit_cost": 500.0, "storage_per_unit": 0.5},
+    {"id": "SKU-004", "name": "Heavy Anvil", "unit_cost": 2000.0, "storage_per_unit": 5.0},
+    {"id": "SKU-005", "name": "Mystery Box", "unit_cost": 1500.0, "storage_per_unit": 1.0}
   ],
   "suppliers": [
-    {"id": "SUP-001", "name": "Acme Corp", "lead_time_days": 5, "minimum_order_quantity": 100, "available_quantity": 10000, "unit_cost": 10.0},
-    {"id": "SUP-002", "name": "Globex", "lead_time_days": 7, "minimum_order_quantity": 300, "available_quantity": 5000, "unit_cost": 5.0},
-    {"id": "SUP-003", "name": "Stark Ind", "lead_time_days": 3, "minimum_order_quantity": 50, "available_quantity": 250, "unit_cost": 20.0}
+    {"id": "SUP-001", "name": "Acme Corp", "lead_time_days": 5, "minimum_order_quantity": 100, "available_quantity": 10000, "unit_cost": 1000.0},
+    {"id": "SUP-002", "name": "Globex", "lead_time_days": 7, "minimum_order_quantity": 300, "available_quantity": 5000, "unit_cost": 500.0},
+    {"id": "SUP-003", "name": "Stark Ind", "lead_time_days": 3, "minimum_order_quantity": 50, "available_quantity": 250, "unit_cost": 2000.0}
   ],
   "inventory": [
     {"product_id": "SKU-001", "current_stock": 100, "reserved_stock": 0, "storage_capacity": 600.0},
@@ -25,9 +25,9 @@
     {"product_id": "SKU-004", "forecast_demand": 300, "recent_sales": 50, "forecast_horizon_days": 30}
   ],
   "purchase_orders": [
-    {"id": "PO-1001", "product_id": "SKU-003", "supplier_id": "SUP-002", "quantity": 100, "unit_cost": 5.0, "status": "OPEN"}
+    {"id": "PO-1001", "product_id": "SKU-003", "supplier_id": "SUP-002", "quantity": 100, "unit_cost": 500.0, "status": "OPEN"}
   ],
   "budget": [
-    {"id": 1, "available_amount": 10000.0}
+    {"id": 1, "available_amount": 1000000.0}
   ]
 }

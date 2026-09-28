@@ -15,10 +15,21 @@ def seed_database(force_reseed=False):
     
     db = SessionLocal()
     try:
-        # Check if already seeded
+        # Check if already seeded with current INR values
+        existing_budget = db.query(DBBudget).first() if not force_reseed else None
         if not force_reseed and db.query(DBProduct).first() is not None:
-            print("Database already seeded. Skipping.")
-            return
+            if existing_budget and existing_budget.available_amount < 50000.0:
+                print("Legacy USD amounts detected. Upgrading to INR seed data...")
+                force_reseed = True
+            else:
+                print("Database already seeded. Skipping.")
+                return
+
+        if force_reseed:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
+            init_db()
+            db = SessionLocal()
 
         seed_file = os.path.join(os.path.dirname(__file__), '../../data/seed.json')
         with open(seed_file, 'r') as f:
